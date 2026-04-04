@@ -23,10 +23,11 @@ import {
   Award
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import Markdown from 'react-markdown';
 import { cn } from './lib/utils';
 import { mockQuestions } from './data/questions';
 import { mockPassages } from './data/passages';
-import { evaluateExplanation } from './services/geminiService';
+import { evaluateExplanation, evaluateExplanationStream } from './services/geminiService';
 import { Question, QuizStep, Chapter, ViewMode, Passage } from './types';
 import { PassageView } from './components/PassageView';
 
@@ -64,7 +65,10 @@ export default function App() {
   const [evalMessageIndex, setEvalMessageIndex] = useState(0);
   const [showMedal, setShowMedal] = useState(false);
   const lastClickTime = useRef(0);
-  const DEBOUNCE_DELAY = 500;
+  const DEBOUNCE_DELAY = 300;
+  
+  // Ref for auto-scrolling feedback
+  const feedbackScrollRef = useRef<HTMLDivElement>(null);
 
   const isDebounced = () => {
     const now = Date.now();
@@ -96,6 +100,13 @@ export default function App() {
     }
     return new Set();
   });
+
+  // --- Auto-scroll Effect ---
+  useEffect(() => {
+    if (feedbackScrollRef.current) {
+      feedbackScrollRef.current.scrollTop = feedbackScrollRef.current.scrollHeight;
+    }
+  }, [aiFeedback]);
 
   // --- Persistence ---
   useEffect(() => {
@@ -238,14 +249,22 @@ export default function App() {
     if (isDebounced()) return;
     
     setIsEvaluating(true);
+    setAiFeedback(null);
+    
     try {
-      const result = await evaluateExplanation(
+      const stream = evaluateExplanationStream(
         userExplanation,
         currentQuestion,
         currentQuestion.passKeywords
       );
-      setAiFeedback(result);
-      if (result.status === 'pass') {
+
+      let lastResult = null;
+      for await (const result of stream) {
+        setAiFeedback(result);
+        lastResult = result;
+      }
+
+      if (lastResult && lastResult.status === 'pass') {
         setConsecutiveFailures(0);
         
         // Trigger Medal if Zhongkao and reasoning wasn't shown
@@ -275,8 +294,8 @@ export default function App() {
         // Auto-navigate to next question after a short delay
         setTimeout(() => {
           handleNextQuestion();
-        }, 1500);
-      } else if (result.status === 'fail' || result.status === 'partial') {
+        }, 3000);
+      } else if (lastResult && (lastResult.status === 'fail' || lastResult.status === 'partial')) {
         // Add to failed list if explanation is weak or wrong
         setFailedQuestionIds(prev => {
           const next = new Set(prev);
@@ -358,7 +377,7 @@ export default function App() {
           setViewMode('map');
         }}
         onBack={() => setViewMode('map')}
-        evaluateExplanation={(explanation, question) => evaluateExplanation(explanation, question, question.passKeywords)}
+        evaluateExplanationStream={(explanation, question) => evaluateExplanationStream(explanation, question, question.passKeywords)}
       />
     );
   }
@@ -482,7 +501,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#050505] p-4 sm:p-8 font-sans text-white touch-manipulation overflow-x-hidden">
+    <div className="min-h-screen bg-[#050505] p-4 sm:p-8 font-sans text-white touch-manipulation overflow-x-hidden pb-20">
       {isReviewMode && (
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
@@ -541,7 +560,7 @@ export default function App() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="bg-white/5 rounded-[40px] p-8 sm:p-12 shadow-2xl border border-white/10 relative overflow-hidden"
+              className="bg-white/5 rounded-3xl sm:rounded-[40px] p-6 sm:p-12 shadow-2xl border border-white/10 relative overflow-hidden"
             >
               {currentQuestion.isZhongkao && (
                 <div className="absolute top-0 right-0 p-6">
@@ -551,23 +570,23 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <div className="mb-10">
-                <span className="inline-block px-4 py-1.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-6">
+              <div className="mb-8 sm:mb-10">
+                <span className="inline-block px-4 py-1.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-4 sm:mb-6">
                   {currentQuestion.grammarPoint}
                 </span>
-                <h2 className="text-3xl sm:text-4xl font-bold leading-tight hyphens-auto text-white">
+                <h2 className="text-2xl sm:text-4xl font-bold leading-tight hyphens-auto text-white">
                   <Field content={currentQuestion.stem} fieldName="stem" />
                 </h2>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:gap-4">
                 {currentQuestion.options.map((option, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleAnswer(option)}
-                    className="group flex items-center justify-between p-6 rounded-2xl border-2 border-white/5 hover:border-blue-500 hover:bg-blue-500/10 transition-all text-left active-shrink"
+                    className="group flex items-center justify-between p-4 sm:p-6 rounded-2xl border-2 border-white/5 hover:border-blue-500 hover:bg-blue-500/10 transition-all text-left active-shrink"
                   >
-                    <span className="text-lg font-bold group-hover:text-blue-400 text-white/80">{option}</span>
+                    <span className="text-base sm:text-lg font-bold group-hover:text-blue-400 text-white/80">{option}</span>
                     <div className="w-8 h-8 rounded-full border-2 border-white/10 group-hover:border-blue-500 flex items-center justify-center">
                       <div className="w-3 h-3 rounded-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
@@ -586,19 +605,19 @@ export default function App() {
               className="space-y-6"
             >
               <div className={cn(
-                "rounded-[40px] p-8 sm:p-12 border-2 shadow-2xl",
+                "rounded-3xl sm:rounded-[40px] p-6 sm:p-12 border-2 shadow-2xl",
                 userAnswer === currentQuestion.correctAnswer 
                   ? "bg-green-500/10 border-green-500/20" 
                   : "bg-red-500/10 border-red-500/20"
               )}>
                 <div className="flex items-center gap-4 mb-6">
                   {userAnswer === currentQuestion.correctAnswer ? (
-                    <CheckCircle2 className="w-10 h-10 text-green-600" />
+                    <CheckCircle2 className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />
                   ) : (
-                    <XCircle className="w-10 h-10 text-red-600" />
+                    <XCircle className="w-8 h-8 sm:w-10 sm:h-10 text-red-600" />
                   )}
                   <h3 className={cn(
-                    "text-2xl font-bold",
+                    "text-xl sm:text-2xl font-bold",
                     userAnswer === currentQuestion.correctAnswer ? "text-green-800" : "text-red-800"
                   )}>
                     {userAnswer === currentQuestion.correctAnswer 
@@ -608,11 +627,11 @@ export default function App() {
                   </h3>
                 </div>
 
-                <div className="bg-white/60 rounded-3xl p-6 backdrop-blur-sm border border-white/40">
-                  <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <div className="bg-white/90 rounded-3xl p-6 backdrop-blur-sm border border-white/40">
+                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                     <BookOpen className="w-4 h-4" /> <Field content={currentQuestion.explanationTitle} fieldName="explanationTitle" />
                   </h4>
-                  <p className="text-lg leading-relaxed font-medium">
+                  <p className="text-lg leading-relaxed font-medium text-gray-900">
                     <Field content={currentQuestion.explanationSummary} fieldName="explanationSummary" />
                   </p>
                 </div>
@@ -642,20 +661,20 @@ export default function App() {
               key="explain"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
+              className="space-y-4 sm:space-y-6"
             >
-              <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-white" />
+              <div className="bg-white rounded-3xl sm:rounded-[40px] p-6 sm:p-12 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
+                <div className="flex items-center gap-3 mb-6 sm:mb-8">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+                    <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <h3 className="text-2xl font-bold">
+                  <h3 className="text-xl sm:text-2xl font-bold text-gray-900">
                     <Field content={currentQuestion.explainTitle} fieldName="explainTitle" />
                   </h3>
                 </div>
 
-                <div className="bg-gray-50 rounded-3xl p-6 mb-8 border border-gray-100">
-                  <p className="text-gray-600 font-medium leading-relaxed">
+                <div className="bg-gray-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 mb-6 sm:mb-8 border border-gray-100">
+                  <p className="text-gray-600 font-medium leading-relaxed text-sm sm:text-base">
                     <Field content={currentQuestion.explainPrompt} fieldName="explainPrompt" />
                   </p>
                 </div>
@@ -665,7 +684,7 @@ export default function App() {
                     value={userExplanation}
                     onChange={(e) => setUserExplanation(e.target.value)}
                     placeholder={currentQuestion.explainPlaceholder}
-                    className="w-full h-40 p-6 bg-gray-50 rounded-3xl border-2 border-transparent focus:border-blue-500 focus:bg-white transition-all outline-none text-lg resize-none"
+                    className="w-full h-32 sm:h-40 p-4 sm:p-6 bg-gray-50 rounded-2xl sm:rounded-3xl border-2 border-transparent focus:border-blue-500 focus:bg-white transition-all outline-none text-base sm:text-lg resize-none text-gray-900 placeholder:text-gray-400"
                   />
                   {isEvaluating && (
                     <motion.div 
@@ -744,19 +763,24 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="text-gray-800 text-lg font-medium leading-relaxed mb-4">
+                    <div 
+                      ref={feedbackScrollRef}
+                      className="text-gray-900 text-lg font-medium leading-relaxed mb-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar"
+                    >
                       {aiFeedback.status === 'pass' && currentQuestion.trapAnalysis ? (
                         <div className="mb-4 p-5 rounded-3xl bg-blue-600/5 border border-blue-600/10 shadow-inner">
                           <div className="flex items-center gap-2 mb-3 text-blue-600 font-bold text-[10px] uppercase tracking-[0.2em]">
                             <Sparkles className="w-3 h-3" />
                             陷阱辨析 · Trap Analysis
                           </div>
-                          <p className="text-blue-900 leading-relaxed italic text-base">
-                            "{currentQuestion.trapAnalysis}"
-                          </p>
+                          <div className="text-blue-900 leading-relaxed italic text-base prose prose-blue prose-sm max-w-none">
+                            <Markdown>{"*" + currentQuestion.trapAnalysis + "*"}</Markdown>
+                          </div>
                         </div>
                       ) : (
-                        aiFeedback.comment
+                        <div className="prose prose-sm sm:prose-base max-w-none text-gray-900 font-medium leading-relaxed">
+                          <Markdown>{aiFeedback.comment}</Markdown>
+                        </div>
                       )}
                     </div>
 
@@ -787,72 +811,30 @@ export default function App() {
                   <button
                     onClick={handleExplain}
                     disabled={isEvaluating || !userExplanation.trim()}
-                    className="flex-1 py-6 bg-blue-600 text-white rounded-2xl font-bold text-xl hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all shadow-xl shadow-blue-100 active-shrink"
+                    className={cn(
+                      "flex-1 py-6 rounded-2xl font-bold text-xl transition-all shadow-xl flex items-center justify-center gap-3 active-shrink",
+                      isEvaluating || !userExplanation.trim() 
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed" 
+                        : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100"
+                    )}
                   >
-                    <Field content={currentQuestion.submitExplainBtnLabel} fieldName="submitExplainBtnLabel" />
+                    {isEvaluating ? (
+                      <>正在评价... <Loader2 className="w-6 h-6 animate-spin" /></>
+                    ) : (
+                      <>提交解释 <ArrowRight className="w-6 h-6" /></>
+                    )}
                   </button>
                   
-                  {aiFeedback?.status === 'pass' && (
+                  {aiFeedback && aiFeedback.status !== 'pass' && (
                     <button
-                      onClick={handleNextQuestion}
-                      className="flex-1 py-6 bg-[#1a1a1a] text-white rounded-2xl font-bold text-xl hover:bg-gray-800 transition-all shadow-xl shadow-gray-200 flex items-center justify-center gap-3 active-shrink"
+                      onClick={() => {
+                        setShowReasoning(true);
+                        setStep('feedback');
+                      }}
+                      className="py-6 px-8 bg-white border-2 border-gray-100 text-gray-600 rounded-2xl font-bold text-lg hover:bg-gray-50 transition-all active-shrink"
                     >
-                      <Field content={currentQuestion.nextQuestionBtnLabel} fieldName="nextQuestionBtnLabel" /> <ArrowRight className="w-6 h-6" />
+                      查看攻略
                     </button>
-                  )}
-
-                  {/* Skip Button - Safety Valve after 3 failures */}
-                  {consecutiveFailures >= 3 && aiFeedback?.status !== 'pass' && (
-                    <button
-                      onClick={handleNextQuestion}
-                      className="flex-1 py-6 bg-gray-100 text-gray-500 rounded-2xl font-bold text-xl hover:bg-gray-200 transition-all flex items-center justify-center gap-3 active-shrink"
-                    >
-                      暂时跳过 <ArrowRight className="w-6 h-6" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Scaffolding / Hints */}
-              <div className="bg-white rounded-[40px] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
-                <div className="flex items-center justify-between mb-6">
-                  <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                    <Lightbulb className="w-4 h-4" /> <Field content={currentQuestion.scaffoldLabel} fieldName="scaffoldLabel" />
-                  </h4>
-                  {hintLevel < 3 && (
-                    <button 
-                      onClick={() => setHintLevel(prev => prev + 1)}
-                      className="touch-target text-xs font-bold text-blue-600 hover:underline active-shrink"
-                    >
-                      <Field content={currentQuestion.getHintBtnLabel} fieldName="getHintBtnLabel" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  {hintLevel >= 1 && (
-                    <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-4">
-                      <span className="shrink-0 w-16 text-[10px] font-bold text-gray-300 uppercase mt-1">
-                        <Field content={currentQuestion.conceptLabel} fieldName="conceptLabel" />
-                      </span>
-                      <p className="text-sm font-medium text-gray-600">{currentQuestion.hintLevel1Concepts}</p>
-                    </motion.div>
-                  )}
-                  {hintLevel >= 2 && (
-                    <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-4">
-                      <span className="shrink-0 w-16 text-[10px] font-bold text-gray-300 uppercase mt-1">
-                        <Field content={currentQuestion.clueLabel} fieldName="clueLabel" />
-                      </span>
-                      <p className="text-sm font-medium text-gray-600">{currentQuestion.hintLevel2Clues}</p>
-                    </motion.div>
-                  )}
-                  {hintLevel >= 3 && (
-                    <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-4">
-                      <span className="shrink-0 w-16 text-[10px] font-bold text-gray-300 uppercase mt-1">
-                        <Field content={currentQuestion.templateLabel} fieldName="templateLabel" />
-                      </span>
-                      <p className="text-sm font-medium text-gray-600 italic">{currentQuestion.hintLevel3Template}</p>
-                    </motion.div>
                   )}
                 </div>
               </div>
@@ -865,170 +847,77 @@ export default function App() {
               key="wrapUp"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="glow-border-wrap"
+              className="bg-white/5 rounded-[40px] p-12 text-center border border-white/10 relative overflow-hidden"
             >
-              <div className="glass-card rounded-[40px] p-8 sm:p-12 shadow-2xl relative overflow-hidden">
-                <div className="text-center mb-10 relative">
-                  {/* Mastered Badge in Wrap Up */}
-                  {(() => {
-                    const currentChapter = chapters.find(c => c.id === currentChapterId);
-                    const isMastered = currentChapter && currentChapter.completedCount >= currentChapter.questionIds.length && currentChapter.questionIds.length > 0;
-                    return isMastered && (
-                      <motion.div 
-                        initial={{ scale: 0, rotate: -20, y: 20 }}
-                        animate={{ scale: 1, rotate: 0, y: 0 }}
-                        className="absolute -top-16 left-1/2 -translate-x-1/2 z-20"
-                      >
-                        <div className="relative group animate-float">
-                          <div className="bg-gradient-to-br from-yellow-300 via-yellow-500 to-amber-600 text-white px-8 py-3 rounded-full text-sm font-black uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(245,158,11,0.5)] flex items-center gap-2 overflow-hidden">
-                            <Sparkles className="w-5 h-5" /> Mastered
-                            {/* Shine Effect */}
-                            <div className="absolute top-0 h-full w-12 bg-white/40 skew-x-[-25deg] animate-shine" />
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })()}
-                  
-                  <div className="inline-block p-6 bg-white/10 rounded-full mb-6 backdrop-blur-sm border border-white/10">
-                    <CheckCircle2 className="w-12 h-12 text-blue-400" />
-                  </div>
-                  
-                  <h3 className="text-4xl font-black text-white text-glow mb-2">
-                    {isReviewMode && remainingRedDots === 0 && "迷雾终结者，欢迎凯旋！"}
-                    <Field content={currentQuestion.wrapUpTitle} fieldName="wrapUpTitle" />
-                  </h3>
-                  <p className="text-blue-200/70 font-medium uppercase tracking-widest text-xs">
-                    Mission Accomplished
-                  </p>
+              <div className="relative z-10">
+                <div className="w-24 h-24 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+                  <Trophy className="w-12 h-12 text-blue-500" />
                 </div>
-
-                <div className="bg-white/5 rounded-[32px] p-10 mb-12 relative overflow-hidden border border-white/10">
-                  <div className="absolute top-0 right-0 p-6 opacity-5">
-                    <BookOpen className="w-32 h-32 text-white" />
-                  </div>
-                  <h4 className="text-blue-300 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-widest">
-                    <Lightbulb className="w-4 h-4" /> <Field content={currentQuestion.wrapUpPrompt} fieldName="wrapUpPrompt" />
-                  </h4>
-                  <p className="text-white text-xl leading-relaxed font-medium relative z-10">
-                    <Field content={currentQuestion.wrapUpRule} fieldName="wrapUpRule" />
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-4">
-                  {(() => {
-                    const currentChapter = chapters.find(c => c.id === currentChapterId);
-                    const chapterFailedIds = currentChapter?.questionIds.filter(id => failedQuestionIds.has(id)) || [];
-                    
-                    if (chapterFailedIds.length > 0) {
-                      return (
-                        <button
-                          onClick={() => {
-                            if (isDebounced()) return;
-                            const firstFailedId = currentChapter?.questionIds.find(id => failedQuestionIds.has(id));
-                            const firstFailedIdx = filteredQuestions.findIndex(q => q.id === firstFailedId);
-                            handleStartChapter(currentChapterId!, true, firstFailedIdx);
-                          }}
-                          className="w-full py-6 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-2xl font-bold text-xl transition-all flex items-center justify-center gap-3 active-shrink"
-                        >
-                          优先重练本章错题 ({chapterFailedIds.length}) <RefreshCcw className="w-6 h-6" />
-                        </button>
-                      );
-                    }
-                    return null;
-                  })()}
-
+                <h2 className="text-4xl font-bold mb-4">本站探索完毕！</h2>
+                <p className="text-white/40 mb-12 text-lg">
+                  你已经成功点亮了本章节的所有语法节点。
+                </p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
-                    onClick={() => {
-                      if (isDebounced()) return;
-                      handleNextChapter();
-                    }}
-                    className="w-full py-6 bg-white text-slate-900 rounded-2xl font-bold text-xl hover:bg-blue-50 transition-all shadow-xl flex items-center justify-center gap-3 active-shrink"
+                    onClick={handleNextChapter}
+                    className="py-6 bg-blue-600 text-white rounded-2xl font-bold text-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20 active-shrink"
                   >
-                    {currentIndex < filteredQuestions.length - 1 ? "继续挑战" : "开启下一章"} <ChevronRight className="w-6 h-6" />
+                    前往下一站
                   </button>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => {
-                        if (isDebounced()) return;
-                        handleRestart();
-                      }}
-                      className="py-4 border border-white/20 text-white/60 rounded-2xl font-bold text-sm hover:bg-white/5 transition-all flex items-center justify-center gap-2 active-shrink"
-                    >
-                      <RefreshCcw className="w-4 h-4" /> 重练本章
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (isDebounced()) return;
-                        handleBackToHome();
-                      }}
-                      className="py-4 bg-white/5 text-white/60 rounded-2xl font-bold text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2 active-shrink"
-                    >
-                      <Home className="w-4 h-4" /> 返回地图
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleBackToHome}
+                    className="py-6 bg-white/5 border border-white/10 text-white rounded-2xl font-bold text-xl hover:bg-white/10 transition-all active-shrink"
+                  >
+                    返回星系图
+                  </button>
                 </div>
               </div>
+              <div className="absolute top-0 left-0 w-full h-full bg-blue-500/5 blur-[100px] -z-10" />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Footer */}
-        <footer className="mt-16 text-center">
-          <p className="text-[10px] text-gray-300 font-bold tracking-[0.3em] uppercase">
-            专为深度学习设计 • GrammarFlow v1.2
-          </p>
-        </footer>
-      </div>
-      {/* Medal Overlay */}
-      <AnimatePresence>
-        {showMedal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-xl p-6"
-            onClick={() => setShowMedal(false)}
-          >
+        {/* Medal Modal */}
+        <AnimatePresence>
+          {showMedal && (
             <motion.div
-              initial={{ scale: 0.8, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="relative flex flex-col items-center text-center max-w-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl"
+              onClick={() => setShowMedal(false)}
             >
-              <div className="relative w-48 h-48 mb-8">
-                <div className="absolute inset-0 bg-blue-500/30 blur-3xl animate-pulse" />
-                <div className="absolute inset-0 bg-gradient-to-tr from-blue-600 to-purple-600 animate-fluid opacity-80" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Trophy className="w-24 h-24 text-white animate-float" />
-                </div>
-              </div>
-              
-              <h2 className="text-4xl font-black text-white mb-4 tracking-tight">
-                中考识破者
-              </h2>
-              <p className="text-blue-200/80 font-mono text-sm uppercase tracking-[0.2em] mb-8">
-                Trap-Cracker Unlocked
-              </p>
-              
-              <div className="p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm mb-8">
-                <p className="text-white/90 text-lg italic leading-relaxed">
-                  "洞察秋毫，直击考点。你已具备识破中考陷阱的顶级直觉。"
-                </p>
-              </div>
-
-              <button
-                onClick={() => setShowMedal(false)}
-                className="px-8 py-4 rounded-full bg-white text-slate-950 font-bold text-sm uppercase tracking-widest hover:scale-105 transition-transform active-shrink"
+              <motion.div
+                initial={{ scale: 0.5, y: 100 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.5, y: 100 }}
+                className="bg-white rounded-[48px] p-12 text-center max-w-sm w-full shadow-[0_0_50px_rgba(59,130,246,0.3)]"
+                onClick={e => e.stopPropagation()}
               >
-                继续征途
-              </button>
+                <div className="w-32 h-32 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-8 relative">
+                  <Award className="w-16 h-16 text-white" />
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 8, ease: "linear" }}
+                    className="absolute inset-0 border-4 border-dashed border-white/30 rounded-full"
+                  />
+                </div>
+                <h3 className="text-3xl font-black text-gray-900 mb-4 tracking-tight uppercase">识破者勋章</h3>
+                <p className="text-gray-500 font-medium mb-10 leading-relaxed">
+                  恭喜！你成功识破了一个中考语法陷阱，并给出了完美的逻辑解释。
+                </p>
+                <button
+                  onClick={() => setShowMedal(false)}
+                  className="w-full py-5 bg-gray-900 text-white rounded-2xl font-bold text-lg hover:bg-black transition-all active-shrink"
+                >
+                  收下勋章
+                </button>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
-
-// --- Utils ---

@@ -104,7 +104,6 @@
 }
 
 .review-bar {
- .review-bar {
   background: linear-gradient(90deg, #f59e0b, #ea580c, #f59e0b);
   background-size: 200% 100%;
   animation: flux 3s linear infinite;

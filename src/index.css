@@ -1,41 +1,25 @@
+/* 彻底简化的基础样式，保证绝对不会报错 */
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color: #1a1a1a; /* 默认文字设为深黑色 */
-  background-color: #ffffff; /* 默认背景设为纯白色 */
+  background-color: white;
+  color: black;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  padding: 20px;
+  font-family: sans-serif;
 }
 
 .review-bar {
-  background: linear-gradient(90deg, #f59e0b, #ea580c, #f59e0b);
-  background-size: 200% 100%;
-  animation: flux 3s linear infinite;
-  color: #451a03 !important;
-  padding: 12px;
+  background: #ea580c;
+  color: white !important;
+  padding: 10px;
   text-align: center;
   font-weight: bold;
-  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
-  border-radius: 8px;
-  margin-bottom: 15px;
+  border-radius: 5px;
 }
 
-@keyframes flux {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-.explanation-text, textarea, .output-box {
+.explanation-text {
   color: #000000 !important;
-  background-color: #ffffff !important;
-  line-height: 1.6;
-  font-size: 16px;
+  margin-top: 20px;
 }

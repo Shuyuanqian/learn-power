@@ -1,25 +1,15 @@
-/* 彻底简化的基础样式，保证绝对不会报错 */
-:root {
-  background-color: white;
-  color: black;
-}
-
 body {
   margin: 0;
-  padding: 20px;
+  padding: 0;
+  background-color: #ffffff;
+  color: #000000;
   font-family: sans-serif;
 }
 
 .review-bar {
   background: #ea580c;
-  color: white !important;
-  padding: 10px;
+  color: #ffffff !important;
+  padding: 12px;
   text-align: center;
   font-weight: bold;
-  border-radius: 5px;
-}
-
-.explanation-text {
-  color: #000000 !important;
-  margin-top: 20px;
 }
